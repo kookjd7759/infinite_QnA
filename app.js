@@ -27,6 +27,11 @@ data.stats=data.stats&&Number.isFinite(data.stats.correct)&&Number.isFinite(data
 let view='study',filterCategory=null,current=null,revealed=false,editorMode=null,editId=null;
 const esc = value => String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const normalize = value => value.normalize('NFKC').trim().replace(/\s+/g,' ').toLocaleLowerCase();
+function duplicateQuestion(category, question, editingId=null){
+ const text=normalize(question);
+ return data.questions.some(card=>card.category===category && card.id!==editingId && normalize(card.q)===text);
+}
+const duplicateMessage='이 카테고리에 같은 문제가 이미 있어요.';
 let missedOnly=false;
 let studyMode='learn';
 const matchesMode = question => question.mastered === (studyMode==='review');
@@ -109,7 +114,12 @@ $('#missedOnly').onchange=e=>{missedOnly=e.target.checked;nextQuestion();};
 $('#resetSession').onclick=()=>{data.stats={correct:0,wrong:0};save();renderStats();toast('이번 학습 기록을 초기화했어요.');};
 $('#search').oninput=renderLibrary;$('#statusFilter').onchange=renderLibrary;$('#addCategory').onclick=()=>openEditor('category');$('#addQuestion').onclick=()=>{if(!data.categories.length){toast('먼저 카테고리를 추가해 주세요.');openEditor('category');return;}openEditor('question');};
 $('#closeEditor').onclick=()=>$('#editor').close();
-$('#editorForm').onsubmit=e=>{e.preventDefault();const fields=new FormData(e.target);if(editorMode==='category'){const name=fields.get('name').trim();if(!name){$('#editorError').textContent='이름을 입력해 주세요.';return;}if(data.categories.some(c=>c.id!==editId&&normalize(c.name)===normalize(name))){$('#editorError').textContent='같은 이름의 카테고리가 있어요.';return;}if(editId)data.categories.find(c=>c.id===editId).name=name;else{const id=uid();data.categories.push({id,name,color:colors[data.categories.length%colors.length]});data.selected.push(id);}}else{const q=fields.get('q').trim(),a=fields.get('a').split('|').map(a=>a.trim()).filter(Boolean).join('|'),category=fields.get('category');if(!q||!a||!category){$('#editorError').textContent='카테고리, 문제와 정답을 모두 입력해 주세요.';return;}if(editId)Object.assign(data.questions.find(q=>q.id===editId),{q,a,category});else data.questions.push({id:uid(),q,a,category,mastered:false});}save();render();nextQuestion();$('#editor').close();toast('저장했어요.');};
+$('#editorForm').onsubmit=e=>{e.preventDefault();const fields=new FormData(e.target);if(editorMode==='category'){const name=fields.get('name').trim();if(!name){$('#editorError').textContent='이름을 입력해 주세요.';return;}if(data.categories.some(c=>c.id!==editId&&normalize(c.name)===normalize(name))){$('#editorError').textContent='같은 이름의 카테고리가 있어요.';return;}if(editId)data.categories.find(c=>c.id===editId).name=name;else{const id=uid();data.categories.push({id,name,color:colors[data.categories.length%colors.length]});data.selected.push(id);}}else{const q=fields.get('q').trim(),a=fields.get('a').split('|').map(a=>a.trim()).filter(Boolean).join('|'),category=fields.get('category');if(!q||!a||!category){$('#editorError').textContent='카테고리, 문제와 정답을 모두 입력해 주세요.';return;}if(duplicateQuestion(category,q,editId)){
+ $('#editorError').textContent=duplicateMessage;
+ e.target.elements.q.focus();
+ return;
+}
+if(editId)Object.assign(data.questions.find(q=>q.id===editId),{q,a,category});else data.questions.push({id:uid(),q,a,category,mastered:false});}save();render();nextQuestion();$('#editor').close();toast('저장했어요.');};
 $('#questionList').onclick=e=>{const button=e.target.closest('[data-action]'),row=e.target.closest('[data-id]');if(!button||!row)return;const q=data.questions.find(q=>q.id===row.dataset.id);const action=button.dataset.action;
  if(action==='mastery'){
    q.mastered=!q.mastered;save();render();toast(q.mastered?'외움 · 복습에서 출제해요.':'안 외움 · 외우기에서 출제해요.');return;
@@ -121,6 +131,11 @@ $('#questionList').onclick=e=>{const button=e.target.closest('[data-action]'),ro
    const question=row.querySelector('[name=q]').value.trim();
    const answer=row.querySelector('[name=a]').value.split('|').map(v=>v.trim()).filter(Boolean).join('|');
    if(!question||!answer){toast('문제와 답을 모두 입력하세요.');return;}
+   if(duplicateQuestion(q.category,question,q.id)){
+     toast(duplicateMessage);
+     row.querySelector('[name=q]').focus();
+     return;
+   }
    Object.assign(q,{q:question,a:answer});
  }
  if(action==='delete'){
