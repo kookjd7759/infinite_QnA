@@ -28,7 +28,9 @@ let view='study',filterCategory=null,current=null,revealed=false,editorMode=null
 const esc = value => String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const normalize = value => value.normalize('NFKC').trim().replace(/\s+/g,' ').toLocaleLowerCase();
 let missedOnly=false;
-const pool = () => data.questions.filter(q=>!q.mastered&&(!missedOnly||q.needsReview===true)&&view==="study" && q.category===filterCategory);
+let studyMode='learn';
+const matchesMode = question => question.mastered === (studyMode==='review');
+const pool = () => data.questions.filter(q=>matchesMode(q)&&(!missedOnly||q.needsReview===true)&&view==="study" && q.category===filterCategory);
 function toast(message){$('#toast').textContent=message;$('#toast').classList.add('visible');clearTimeout(toast.timer);toast.timer=setTimeout(()=>$('#toast').classList.remove('visible'),2500);}
 function save(){try{localStorage.setItem(KEY,JSON.stringify(data));}catch{toast('저장 공간이 부족해요. 데이터를 백업해 주세요.');}}
 function categoryName(id){return data.categories.find(c=>c.id===id)?.name||'';}
@@ -42,6 +44,8 @@ function render(){
  $('#studyView').hidden=!studying||!chosen;
  $('#libraryView').hidden=studying||!chosen;
  $('#picker').hidden=chosen;
+ $('#studyMode').hidden=!studying;
+ $('#masterCurrent').textContent=studyMode==='review'?'↻ 안 외움으로 변경':'✓ 이 문제는 다 외웠어요';
  $('.backup-actions').hidden=studying;
  $('#manage').hidden=false;
  $('#manage').textContent=studying?'문제 보관함':'＋ 카테고리 추가';
@@ -52,19 +56,19 @@ function render(){
  $('#categories').innerHTML=data.categories.map(c=>`<button class="category-nav ${!studying&&filterCategory===c.id?'active':''}" data-category="${esc(c.id)}">${esc(c.name)}</button>`).join('');
  $('#picker').innerHTML=data.categories.map(c=>{
    const cards=data.questions.filter(q=>q.category===c.id);
-   const remaining=cards.filter(q=>!q.mastered).length;
-   const action=studying?(remaining?'학습 시작 →':cards.length?'모두 외웠어요':'문제가 없어요'):'보관함 열기 →';
-   return `<button class="category-card" data-category="${esc(c.id)}" ${studying&&!remaining?'disabled':''}><strong>${esc(c.name)}</strong><small>안 외움 ${remaining}개</small>${progressMarkup(cards)}<span>${action}</span></button>`;
+   const remaining=cards.filter(matchesMode).length;
+   const action=studying?(remaining?'학습 시작 →':'해당하는 문제가 없어요'):'보관함 열기 →';
+   return `<button class="category-card" data-category="${esc(c.id)}" ${studying&&!remaining?'disabled':''}><strong>${esc(c.name)}</strong><small>${studying?(studyMode==='review'?'외움':'안 외움'):'전체'} ${studying?remaining:cards.length}개</small>${progressMarkup(cards)}<span>${action}</span></button>`;
 
  }).join('')||'카테고리를 추가해 주세요.';
  const deck=data.questions.filter(q=>q.category===filterCategory);
  $('#deckProgress').innerHTML=progressMarkup(deck);
- $('#missedCount').textContent=deck.filter(q=>!q.mastered&&q.needsReview===true).length;
+ $('#missedCount').textContent=deck.filter(q=>matchesMode(q)&&q.needsReview===true).length;
  $('#missedOnly').checked=missedOnly;
  renderStats();renderLibrary();
 }
 function renderStats(){const {correct,wrong}=data.stats,total=correct+wrong;$('#answeredCount').textContent=total;$('#correctCount').textContent=correct;$('#wrongCount').textContent=wrong;$('#accuracy').textContent=total?Math.round(correct/total*100)+'%':'—';$('#accuracyBar').style.width=(total?correct/total*100:0)+'%';}
-function nextQuestion(){if(view!=='study'||filterCategory===null)return;const available=pool();current=available.length?available[Math.floor(Math.random()*available.length)]:null;revealed=false;$('#answer').value='';$('#answer').disabled=!current;$('#submitAnswer').disabled=!current;$('#masterCurrent').disabled=!current;$('#feedback').textContent='';$('#feedback').className='';$('#submitAnswer').innerHTML='정답 확인 <span>↵</span>';$('#questionCategory').textContent=current?categoryName(current.category):'잠깐 쉬어가기';$('#questionNumber').textContent=current?'무작위 출제 · '+available.length+'개':'';$('#question').textContent=current?current.q:'학습할 문제가 없어요';$('#questionHint').textContent=current?'떠오르는 답을 아래에 입력해 주세요.':missedOnly?'오답만 연습을 끄면 안 외운 문제 전체를 풀 수 있어요.':'보관함에서 안 외움으로 바꾸거나 문제를 추가하세요.';if(current&&view==='study')$('#answer').focus();}
+function nextQuestion(){if(view!=='study'||filterCategory===null)return;const available=pool();current=available.length?available[Math.floor(Math.random()*available.length)]:null;revealed=false;$('#answer').value='';$('#answer').disabled=!current;$('#submitAnswer').disabled=!current;$('#masterCurrent').disabled=!current;$('#feedback').textContent='';$('#feedback').className='';$('#submitAnswer').innerHTML='정답 확인 <span>↵</span>';$('#questionCategory').textContent=current?categoryName(current.category):'잠깐 쉬어가기';$('#questionNumber').textContent=current?'무작위 출제 · '+available.length+'개':'';$('#question').textContent=current?current.q:'학습할 문제가 없어요';$('#questionHint').textContent=current?'떠오르는 답을 아래에 입력해 주세요.':missedOnly?'오답만 연습을 끄면 이 모드의 문제 전체를 풀 수 있어요.':'학습 모드를 바꾸거나 보관함에서 암기 상태를 확인하세요.';if(current&&view==='study')$('#answer').focus();}
 let editing=null;
 function renderLibrary(){
  const search=normalize($('#search').value), status=$('#statusFilter').value;
@@ -94,7 +98,13 @@ for(const id of ['#categories','#picker']){
    if(button&&!button.disabled)setView(id==='#categories'?'library':view,button.dataset.category);
  };
 }
-$('#masterCurrent').onclick=()=>{if(!current)return;current.mastered=true;save();render();nextQuestion();toast('암기 완료! 출제 대상에서 제외했어요.');};
+$('#masterCurrent').onclick=()=>{if(!current)return;current.mastered=studyMode==='learn';save();render();nextQuestion();toast(studyMode==='learn'?'외움으로 표시했어요. 복습에서 풀 수 있어요.':'안 외움으로 표시했어요. 외우기에서 풀 수 있어요.');};
+$('#studyMode').onchange=e=>{
+ studyMode=e.target.value;
+ missedOnly=false;
+ render();
+ nextQuestion();
+};
 $('#missedOnly').onchange=e=>{missedOnly=e.target.checked;nextQuestion();};
 $('#resetSession').onclick=()=>{data.stats={correct:0,wrong:0};save();renderStats();toast('이번 학습 기록을 초기화했어요.');};
 $('#search').oninput=renderLibrary;$('#statusFilter').onchange=renderLibrary;$('#addCategory').onclick=()=>openEditor('category');$('#addQuestion').onclick=()=>{if(!data.categories.length){toast('먼저 카테고리를 추가해 주세요.');openEditor('category');return;}openEditor('question');};
@@ -102,7 +112,7 @@ $('#closeEditor').onclick=()=>$('#editor').close();
 $('#editorForm').onsubmit=e=>{e.preventDefault();const fields=new FormData(e.target);if(editorMode==='category'){const name=fields.get('name').trim();if(!name){$('#editorError').textContent='이름을 입력해 주세요.';return;}if(data.categories.some(c=>c.id!==editId&&normalize(c.name)===normalize(name))){$('#editorError').textContent='같은 이름의 카테고리가 있어요.';return;}if(editId)data.categories.find(c=>c.id===editId).name=name;else{const id=uid();data.categories.push({id,name,color:colors[data.categories.length%colors.length]});data.selected.push(id);}}else{const q=fields.get('q').trim(),a=fields.get('a').split('|').map(a=>a.trim()).filter(Boolean).join('|'),category=fields.get('category');if(!q||!a||!category){$('#editorError').textContent='카테고리, 문제와 정답을 모두 입력해 주세요.';return;}if(editId)Object.assign(data.questions.find(q=>q.id===editId),{q,a,category});else data.questions.push({id:uid(),q,a,category,mastered:false});}save();render();nextQuestion();$('#editor').close();toast('저장했어요.');};
 $('#questionList').onclick=e=>{const button=e.target.closest('[data-action]'),row=e.target.closest('[data-id]');if(!button||!row)return;const q=data.questions.find(q=>q.id===row.dataset.id);const action=button.dataset.action;
  if(action==='mastery'){
-   q.mastered=!q.mastered;save();render();toast(q.mastered?'외움 · 출제에서 제외했어요.':'안 외움 · 다시 출제해요.');return;
+   q.mastered=!q.mastered;save();render();toast(q.mastered?'외움 · 복습에서 출제해요.':'안 외움 · 외우기에서 출제해요.');return;
  }
  if(action==='edit'){
    editing=q.id;renderLibrary();$('#questionList textarea').focus();return;
